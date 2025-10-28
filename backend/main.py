@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
@@ -37,6 +37,15 @@ class Job(BaseModel):
     is_active: bool = True
     created_at: datetime = datetime.now()
 
+class BulkJobCreate(BaseModel):
+    title: str
+    description: str
+    company: str
+    location: str
+    salary_range: Optional[str] = None
+    employment_type: str
+    required_skills: List[str] = []
+
 class Application(BaseModel):
     id: Optional[str] = None
     job_id: str
@@ -44,6 +53,7 @@ class Application(BaseModel):
     cover_letter: Optional[str] = None
     status: str = "pending"
     applied_at: datetime = datetime.now()
+    match_score: Optional[float] = None
 
 app = FastAPI(title="SmartHire API", version="1.0.0")
 
@@ -144,30 +154,133 @@ async def create_job(job_data: dict):
     jobs_db.append(new_job)
     return new_job
 
+@app.post("/api/jobs/bulk")
+async def create_bulk_jobs(jobs_data: List[BulkJobCreate]):  # Change this line
+    """Create multiple jobs at once"""
+    created_jobs = []
+    for job_data in jobs_data:
+        new_job = Job(
+            id=generate_id(),
+            title=job_data.title,  # Change from job_data["title"] to job_data.title
+            description=job_data.description,
+            company=job_data.company,
+            location=job_data.location,
+            salary_range=job_data.salary_range,
+            employment_type=job_data.employment_type,
+            required_skills=job_data.required_skills,
+            posted_by="system"
+        )
+        jobs_db.append(new_job)
+        created_jobs.append(new_job)
+    
+    return {"message": f"Created {len(created_jobs)} jobs", "jobs": created_jobs}
+
 # Applications endpoints
 @app.post("/api/applications/")
 async def create_application(application_data: dict):
     """Apply for a job"""
-    # Check if already applied
-    for app in applications_db:
-        if app.job_id == application_data["job_id"] and app.candidate_id == "temp_candidate_id":
-            raise HTTPException(status_code=400, detail="Already applied to this job")
-    
-    new_application = Application(
-        id=generate_id(),
-        job_id=application_data["job_id"],
-        candidate_id="temp_candidate_id",  # In real app, get from auth
-        cover_letter=application_data.get("cover_letter")
-    )
-    
-    applications_db.append(new_application)
-    return new_application
+    try:
+        # Check if job exists
+        job_exists = False
+        for job in jobs_db:
+            if job.id == application_data["job_id"]:
+                job_exists = True
+                break
+        
+        if not job_exists:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Use consistent candidate ID
+        candidate_id = "temp_candidate_id"
+        
+        # Check if already applied
+        for app in applications_db:
+            if app.job_id == application_data["job_id"] and app.candidate_id == candidate_id:
+                raise HTTPException(status_code=400, detail="Already applied to this job")
+        
+        new_application = Application(
+            id=generate_id(),
+            job_id=application_data["job_id"],
+            candidate_id=candidate_id,  # Consistent ID
+            cover_letter=application_data.get("cover_letter", "I'm interested in this position!"),
+            status="pending",
+            match_score=0.85  # Add mock AI score
+        )
+        
+        applications_db.append(new_application)
+        return {
+            "id": new_application.id,
+            "job_id": new_application.job_id,
+            "candidate_id": new_application.candidate_id,
+            "cover_letter": new_application.cover_letter,
+            "status": new_application.status,
+            "applied_at": new_application.applied_at.isoformat(),
+            "match_score": new_application.match_score
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/applications/candidate/{candidate_id}")
 async def get_candidate_applications(candidate_id: str):
-    """Get applications by candidate"""
-    candidate_apps = [app for app in applications_db if app.candidate_id == candidate_id]
-    return candidate_apps
+    """Get all applications by a candidate"""
+    try:
+        # For now, we'll return all applications since we're using temp IDs
+        candidate_apps = [app for app in applications_db]
+        
+        # Convert applications to response format
+        applications_response = []
+        for app in candidate_apps:
+            # Find the job details for each application
+            job_details = None
+            for job in jobs_db:
+                if job.id == app.job_id:
+                    job_details = job
+                    break
+            
+            app_data = {
+                "id": app.id,
+                "job_id": app.job_id,
+                "job_title": job_details.title if job_details else "Unknown Job",
+                "company": job_details.company if job_details else "Unknown Company",
+                "location": job_details.location if job_details else "Unknown Location",
+                "candidate_id": app.candidate_id,
+                "cover_letter": app.cover_letter,
+                "status": app.status,
+                "applied_at": app.applied_at.isoformat()
+            }
+            
+            # Only add match_score if it exists
+            if hasattr(app, 'match_score') and app.match_score is not None:
+                app_data["match_score"] = app.match_score
+            else:
+                app_data["match_score"] = 0.85  # Default value
+            
+            applications_response.append(app_data)
+        
+        return applications_response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add this endpoint to see all applications (for debugging)
+@app.get("/api/debug/applications")
+async def debug_applications():
+    """Debug endpoint to see all applications"""
+    return {
+        "total_applications": len(applications_db),
+        "applications": [
+            {
+                "id": app.id,
+                "job_id": app.job_id,
+                "candidate_id": app.candidate_id,
+                "status": app.status,
+                "match_score": app.match_score  # ADD THIS
+            }
+            for app in applications_db
+        ]
+    }
 
 # Add some sample data
 @app.on_event("startup")

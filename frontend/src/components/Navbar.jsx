@@ -25,17 +25,24 @@ const Navbar = () => {
             </Link>
 
             {isAuthenticated ? (
-              <div className="flex items-center space-x-4">
-                <span className="text-blue-200">
-                  Welcome, {user.full_name}
-                </span>
-                <button
-                  onClick={handleLogout}
-                  className="bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded transition-colors"
-                >
-                  Logout
-                </button>
-              </div>
+              <>
+                {/* ADD THIS DASHBOARD LINK */}
+                <Link to="/dashboard" className="hover:text-blue-200 transition-colors">
+                  Dashboard
+                </Link>
+                
+                <div className="flex items-center space-x-4">
+                  <span className="text-blue-200">
+                    Welcome, {user.full_name}
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded transition-colors"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </>
             ) : (
               <div className="flex items-center space-x-4">
                 <Link to="/login" className="hover:text-blue-200 transition-colors">

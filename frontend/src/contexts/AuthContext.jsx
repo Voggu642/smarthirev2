@@ -53,13 +53,16 @@ export const AuthProvider = ({ children }) => {
   };
 
   const value = {
-    user,
-    register,
-    login,
-    logout,
-    loading,
-    isAuthenticated: !!user,
-  };
+  user,
+  register,
+  login,
+  logout,
+  loading,
+  isAuthenticated: !!user,
+  isEmployer: user?.user_type === 'employer',
+  isCandidate: user?.user_type === 'candidate',
+  isAdmin: user?.user_type === 'admin',
+};
 
   return (
     <AuthContext.Provider value={value}>

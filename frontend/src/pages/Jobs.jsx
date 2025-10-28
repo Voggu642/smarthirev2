@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { jobsAPI, applicationsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import ApplicationDialog from '../components/ApplicationDialog';
+import JobDetailsDialog from '../components/JobDetailsDialog'; // ADD THIS IMPORT
 
 const Jobs = () => {
   const [jobs, setJobs] = useState([]);
@@ -14,15 +16,30 @@ const Jobs = () => {
   const [employmentType, setEmploymentType] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
   const [skillFilter, setSkillFilter] = useState('');
+  
+  // Applied jobs with localStorage persistence
+  const [appliedJobIds, setAppliedJobIds] = useState(() => {
+    const saved = localStorage.getItem('smarthire_applied_jobs');
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+
+  // Dialog states
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [showJobDetails, setShowJobDetails] = useState(false);
+  const [showApplicationDialog, setShowApplicationDialog] = useState(false);
 
   useEffect(() => {
     fetchJobs();
   }, []);
 
   useEffect(() => {
-    // Apply filters whenever jobs, search term, or filters change
     applyFilters();
-  }, [jobs, searchTerm, employmentType, locationFilter, skillFilter]);
+  }, [jobs, searchTerm, employmentType, locationFilter, skillFilter, appliedJobIds, isAuthenticated]);
+
+  // Save applied jobs to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('smarthire_applied_jobs', JSON.stringify([...appliedJobIds]));
+  }, [appliedJobIds]);
 
   const fetchJobs = async () => {
     try {
@@ -75,28 +92,27 @@ const Jobs = () => {
     setFilteredJobs(filtered);
   };
 
-  const handleApply = async (jobId, jobTitle) => {
-    if (!isAuthenticated) {
-      alert('Please login to apply for jobs');
-      return;
-    }
+  const handleViewJob = (job) => {
+    setSelectedJob(job);
+    setShowJobDetails(true);
+  };
 
+  const handleApplyFromDetails = (job) => {
+    setShowJobDetails(false);
+    setShowApplicationDialog(true);
+  };
+
+  const handleApplicationSubmit = async (appliedJobId) => {
+    console.log('Application submitted for job:', appliedJobId);
+    
+    // Add the job ID to applied jobs
+    setAppliedJobIds(prev => new Set([...prev, appliedJobId]));
+    
+    // Re-fetch jobs to ensure data is fresh
     try {
-      const applicationData = {
-        job_id: jobId,
-        cover_letter: `I'm very interested in the ${jobTitle} position at your company. I believe my skills and experience make me a great fit for this role.`
-      };
-      
-      await applicationsAPI.apply(applicationData);
-      alert('🎉 Application submitted successfully!');
-      
+      await fetchJobs();
     } catch (err) {
-      if (err.response?.status === 400) {
-        alert('You have already applied to this job!');
-      } else {
-        console.error('Error applying:', err);
-        alert('Failed to apply for job. Please try again.');
-      }
+      console.error('Error refreshing jobs:', err);
     }
   };
 
@@ -136,8 +152,9 @@ const Jobs = () => {
             </div>
           </div>
 
-          {/* Search Bar */}
+          {/* Search Bar - Keep your existing search/filter code exactly as is */}
           <div className="bg-white rounded-lg shadow p-6 mb-6">
+            {/* ... Your existing search/filter code remains exactly the same ... */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Search Input */}
               <div>
@@ -243,9 +260,18 @@ const Jobs = () => {
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredJobs.map((job) => (
-              <div key={job.id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow">
+              <div key={job.id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow relative">
+                {/* Applied Badge */}
+                {appliedJobIds.has(job.id) && (
+                  <div className="absolute top-4 right-4">
+                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
+                      ✓ Applied
+                    </span>
+                  </div>
+                )}
+                
                 <div className="p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{job.title}</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2 pr-16">{job.title}</h3>
                   <p className="text-gray-600 mb-4">{job.company} • {job.location}</p>
                   
                   <div className="mb-4">
@@ -282,10 +308,10 @@ const Jobs = () => {
                       Posted {new Date(job.created_at).toLocaleDateString()}
                     </span>
                     <button
-                      onClick={() => handleApply(job.id, job.title)}
+                      onClick={() => handleViewJob(job)}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
                     >
-                      {isAuthenticated ? 'Apply Now' : 'Login to Apply'}
+                      View Job
                     </button>
                   </div>
                 </div>
@@ -294,6 +320,23 @@ const Jobs = () => {
           </div>
         )}
       </div>
+
+      {/* Job Details Dialog */}
+      <JobDetailsDialog
+        job={selectedJob}
+        isOpen={showJobDetails}
+        onClose={() => setShowJobDetails(false)}
+        onApplyClick={handleApplyFromDetails}
+        isApplied={appliedJobIds.has(selectedJob?.id)}
+      />
+
+      {/* Application Dialog */}
+      <ApplicationDialog
+        job={selectedJob}
+        isOpen={showApplicationDialog}
+        onClose={() => setShowApplicationDialog(false)}
+        onApplicationSubmit={() => handleApplicationSubmit(selectedJob?.id)}
+      />
     </div>
   );
 };

@@ -201,10 +201,10 @@ async def create_application(application_data: dict):
         new_application = Application(
             id=generate_id(),
             job_id=application_data["job_id"],
-            candidate_id=candidate_id,  # Consistent ID
+            candidate_id=candidate_id,
             cover_letter=application_data.get("cover_letter", "I'm interested in this position!"),
             status="pending",
-            match_score=0.85  # Add mock AI score
+            match_score=0.85,
         )
         
         applications_db.append(new_application)
@@ -215,13 +215,12 @@ async def create_application(application_data: dict):
             "cover_letter": new_application.cover_letter,
             "status": new_application.status,
             "applied_at": new_application.applied_at.isoformat(),
-            "match_score": new_application.match_score
+            "match_score": new_application.match_score,
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/applications/candidate/{candidate_id}")
 async def get_candidate_applications(candidate_id: str):

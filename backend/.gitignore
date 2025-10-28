@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / compiled files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+env/
+.env/
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store # macOS specific
+
+# Log files
+*.log
+
+# Database files
+*.sqlite3
+*.db
+/data/ # Example for a data directory
+
+# Uploaded files/media
+/media/
+/static_collected/
+
+# Configuration files
+*.ini
+*.cfg
+*.conf
+.env # Sensitive environment variables
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

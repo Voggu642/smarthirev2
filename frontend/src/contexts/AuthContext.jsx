@@ -3,19 +3,12 @@ import { authAPI } from '../services/api';
 
 const AuthContext = createContext();
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is logged in on app start
   useEffect(() => {
     const savedUser = localStorage.getItem('smarthire_user');
     if (savedUser) {
@@ -66,9 +59,6 @@ export const AuthProvider = ({ children }) => {
     logout,
     loading,
     isAuthenticated: !!user,
-    isEmployer: user?.user_type === 'employer',
-    isCandidate: user?.user_type === 'candidate',
-    isAdmin: user?.user_type === 'admin',
   };
 
   return (

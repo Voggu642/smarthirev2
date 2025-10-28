@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Base URL for backend API - adjust port if needed
 const API_BASE_URL = 'http://localhost:8000/api';
 
 const api = axios.create({
@@ -21,14 +20,12 @@ export const jobsAPI = {
   getJobs: () => api.get('/jobs/'),
   getJob: (id) => api.get(`/jobs/${id}`),
   createJob: (jobData) => api.post('/jobs/', jobData),
-  getEmployerJobs: (employerId) => api.get(`/jobs/employer/${employerId}`),
 };
 
 // Applications API calls
 export const applicationsAPI = {
   apply: (applicationData) => api.post('/applications/', applicationData),
   getCandidateApplications: (candidateId) => api.get(`/applications/candidate/${candidateId}`),
-  getJobApplications: (jobId) => api.get(`/applications/job/${jobId}`),
 };
 
 export default api;

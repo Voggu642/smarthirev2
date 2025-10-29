@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useResumes } from '../contexts/ResumeContext';
 import { applicationsAPI } from '../services/api';
 
 const Dashboard = () => {
@@ -7,11 +8,15 @@ const Dashboard = () => {
   const [filteredApplications, setFilteredApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const { user, isCandidate } = useAuth();
+  const { resumes, primaryResume } = useResumes();
 
   // Filter states
   const [statusFilter, setStatusFilter] = useState('all');
   const [companyFilter, setCompanyFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Store which resume was used for each application
+  const [applicationResumes, setApplicationResumes] = useState({});
 
   useEffect(() => {
     if (user && isCandidate) {
@@ -27,12 +32,43 @@ const Dashboard = () => {
     try {
       setLoading(true);
       const response = await applicationsAPI.getCandidateApplications("temp_candidate_id");
-      setApplications(response.data);
+      const apps = response.data;
+      setApplications(apps);
+      
+      // Load application resumes from localStorage
+      loadApplicationResumes(apps);
     } catch (err) {
       console.error('Error fetching applications:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadApplicationResumes = (apps) => {
+    const savedResumes = localStorage.getItem('smarthire_application_resumes');
+    if (savedResumes) {
+      const resumesMap = JSON.parse(savedResumes);
+      setApplicationResumes(resumesMap);
+    } else {
+      // If no saved data, assume primary resume was used for all applications
+      const defaultResumes = {};
+      apps.forEach(app => {
+        if (primaryResume) {
+          defaultResumes[app.id] = primaryResume.filename;
+        }
+      });
+      setApplicationResumes(defaultResumes);
+      localStorage.setItem('smarthire_application_resumes', JSON.stringify(defaultResumes));
+    }
+  };
+
+  const getResumeForApplication = (applicationId) => {
+    const resumeName = applicationResumes[applicationId];
+    if (resumeName) {
+      return resumeName;
+    }
+    // Fallback to primary resume if not found
+    return primaryResume ? primaryResume.filename : 'Unknown Resume';
   };
 
   const applyFilters = () => {
@@ -50,10 +86,12 @@ const Dashboard = () => {
       );
     }
 
-    // Search filter (job title)
+    // Search filter (job title, company, or resume name)
     if (searchTerm) {
       filtered = filtered.filter(app =>
-        app.job_title.toLowerCase().includes(searchTerm.toLowerCase())
+        app.job_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        app.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        getResumeForApplication(app.id).toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -83,6 +121,13 @@ const Dashboard = () => {
       case 'rejected': return '❌';
       default: return '📝';
     }
+  };
+
+  const getResumeIcon = (resumeName) => {
+    if (resumeName.includes('resume') || resumeName.includes('cv')) return '📄';
+    if (resumeName.includes('developer')) return '💻';
+    if (resumeName.includes('engineer')) return '⚙️';
+    return '📝';
   };
 
   if (loading) {
@@ -115,12 +160,48 @@ const Dashboard = () => {
                     Track your job applications and their status
                   </p>
                 </div>
-                <div className="bg-blue-50 px-4 py-2 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{applications.length}</div>
-                  <div className="text-sm text-blue-700">Total Applications</div>
+                <div className="flex gap-4">
+                  <div className="bg-blue-50 px-4 py-2 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600">{applications.length}</div>
+                    <div className="text-sm text-blue-700">Total Applications</div>
+                  </div>
+                  <div className="bg-green-50 px-4 py-2 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600">{resumes.length}</div>
+                    <div className="text-sm text-green-700">Available Resumes</div>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* Current Primary Resume */}
+            {primaryResume && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-blue-900">Current Primary Resume</h3>
+                    <p className="text-sm text-blue-700">
+                      {primaryResume.filename}
+                    </p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {primaryResume.extracted_skills.slice(0, 4).map((skill, index) => (
+                        <span key={index} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                          {skill}
+                        </span>
+                      ))}
+                      {primaryResume.extracted_skills.length > 4 && (
+                        <span className="text-blue-500 text-xs">+{primaryResume.extracted_skills.length - 4} more</span>
+                      )}
+                    </div>
+                  </div>
+                  <a 
+                    href="/profile" 
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
+                  >
+                    Manage Resumes
+                  </a>
+                </div>
+              </div>
+            )}
 
             {/* Filters */}
             <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
@@ -128,11 +209,11 @@ const Dashboard = () => {
                 {/* Search */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Search Jobs
+                    Search Applications
                   </label>
                   <input
                     type="text"
-                    placeholder="Job title or keywords..."
+                    placeholder="Job title, company, or resume..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -236,7 +317,7 @@ const Dashboard = () => {
                       {/* Job Info */}
                       <div className="flex-1">
                         <div className="flex items-start justify-between mb-3">
-                          <div>
+                          <div className="flex-1">
                             <h3 className="text-lg font-semibold text-gray-900 mb-1">
                               {app.job_title}
                             </h3>
@@ -251,20 +332,58 @@ const Dashboard = () => {
                         </div>
 
                         {/* Application Details */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-600">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm text-gray-600">
                           <div className="flex items-center space-x-2">
                             <span className="font-medium">Applied:</span>
                             <span>{new Date(app.applied_at).toLocaleDateString()}</span>
                           </div>
+                          
+                          {/* Resume Used */}
+                          <div className="flex items-center space-x-2">
+                            <span className="font-medium">Resume Used:</span>
+                            <span className="flex items-center space-x-1 bg-gray-100 px-2 py-1 rounded text-xs">
+                              <span>{getResumeIcon(getResumeForApplication(app.id))}</span>
+                              <span className="max-w-32 truncate" title={getResumeForApplication(app.id)}>
+                                {getResumeForApplication(app.id)}
+                              </span>
+                            </span>
+                          </div>
+
                           {app.match_score && (
                             <div className="flex items-center space-x-2">
                               <span className="font-medium">Match Score:</span>
-                              <span className="text-green-600 font-semibold">
+                              <span className={`font-semibold ${
+                                app.match_score >= 0.8 ? 'text-green-600' :
+                                app.match_score >= 0.6 ? 'text-yellow-600' :
+                                'text-orange-600'
+                              }`}>
                                 {(app.match_score * 100).toFixed(0)}%
                               </span>
                             </div>
                           )}
                         </div>
+
+                        {/* Skills Match (if available) */}
+                        {app.match_score && (
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-gray-700">Skills Match</span>
+                              <span className="text-xs text-gray-500">
+                                {Math.round(app.match_score * 100)}% compatible
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full ${
+                                  app.match_score >= 0.8 ? 'bg-green-500' :
+                                  app.match_score >= 0.6 ? 'bg-yellow-500' :
+                                  'bg-orange-500'
+                                }`}
+                                style={{ width: `${app.match_score * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

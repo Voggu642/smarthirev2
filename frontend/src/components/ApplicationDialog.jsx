@@ -1,21 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { applicationsAPI } from '../services/api';
+import { useResumes } from '../contexts/ResumeContext';
 
 const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
   const [coverLetter, setCoverLetter] = useState('');
   const [resumeFile, setResumeFile] = useState(null);
+  const [selectedResumeId, setSelectedResumeId] = useState('');
   const [loading, setLoading] = useState(false);
+  const { resumes } = useResumes();
 
   // Reset form when dialog opens
   useEffect(() => {
     if (isOpen) {
       setCoverLetter('');
       setResumeFile(null);
+      // Set default selected resume to first resume
+      if (resumes.length > 0) {
+        setSelectedResumeId(resumes[0].id);
+      }
       // Clear the file input
       const fileInput = document.getElementById('resume-upload');
       if (fileInput) fileInput.value = '';
     }
-  }, [isOpen]);
+  }, [isOpen, resumes]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,6 +40,21 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
       };
       
       await applicationsAPI.apply(applicationData);
+      
+      // Save which resume was used for this application
+      if (selectedResumeId) {
+        const selectedResume = resumes.find(r => r.id === selectedResumeId);
+        if (selectedResume) {
+          const applicationResumes = JSON.parse(localStorage.getItem('smarthire_application_resumes') || '{}');
+          applicationResumes[job.id] = {
+            filename: selectedResume.filename,
+            resumeId: selectedResume.id,
+            skills: selectedResume.extracted_skills
+          };
+          localStorage.setItem('smarthire_application_resumes', JSON.stringify(applicationResumes));
+        }
+      }
+      
       onApplicationSubmit();
       onClose();
       alert('🎉 Application submitted successfully!');
@@ -58,6 +80,8 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
           return;
         }
         setResumeFile(file);
+        // Clear selected resume when uploading a new file
+        setSelectedResumeId('');
       } else {
         alert('Please upload a PDF file only');
         e.target.value = '';
@@ -70,18 +94,77 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
     // Clear the file input
     const fileInput = document.getElementById('resume-upload');
     if (fileInput) fileInput.value = '';
+    // Reset to first resume
+    if (resumes.length > 0) {
+      setSelectedResumeId(resumes[0].id);
+    }
   };
 
   const handleClose = () => {
     // Reset form when closing
     setCoverLetter('');
     setResumeFile(null);
+    if (resumes.length > 0) {
+      setSelectedResumeId(resumes[0].id);
+    }
     const fileInput = document.getElementById('resume-upload');
     if (fileInput) fileInput.value = '';
     onClose();
   };
 
+  const getSelectedResume = () => {
+    return resumes.find(r => r.id === selectedResumeId) || (resumes.length > 0 ? resumes[0] : null);
+  };
+
+  const calculateJobMatch = (selectedResume) => {
+    if (!job || !Array.isArray(job.required_skills) || job.required_skills.length === 0) {
+      return -1;
+    }
+    
+    if (!selectedResume || !Array.isArray(selectedResume.extracted_skills) || selectedResume.extracted_skills.length === 0) {
+      return -1;
+    }
+    
+    try {
+      const resumeSkills = selectedResume.extracted_skills.map(skill => skill.toLowerCase());
+      const jobSkills = job.required_skills.map(skill => skill.toLowerCase());
+      
+      const matchingSkills = jobSkills.filter(skill => 
+        resumeSkills.some(resumeSkill => 
+          resumeSkill.includes(skill) || skill.includes(resumeSkill)
+        )
+      );
+      
+      if (matchingSkills.length === 0) {
+        return 0;
+      }
+      
+      return Math.round((matchingSkills.length / jobSkills.length) * 100);
+    } catch (error) {
+      console.error('Error calculating job match:', error);
+      return -1;
+    }
+  };
+
+  const getMatchColor = (matchScore) => {
+    if (matchScore >= 80) return 'text-green-600';
+    if (matchScore >= 60) return 'text-yellow-600';
+    if (matchScore > 0) return 'text-orange-600';
+    return 'text-gray-600';
+  };
+
+  const getMatchLabel = (matchScore) => {
+    if (matchScore >= 80) return 'Excellent Match';
+    if (matchScore >= 60) return 'Good Match';
+    if (matchScore > 0) return 'Partial Match';
+    if (matchScore === 0) return 'No Match';
+    return 'Calculating...';
+  };
+
   if (!isOpen || !job) return null;
+
+  const selectedResume = getSelectedResume();
+  const matchScore = selectedResume ? calculateJobMatch(selectedResume) : -1;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -102,10 +185,57 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Resume Upload */}
+          {/* Resume Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Upload Resume (PDF) - Optional
+              Select Resume to Use *
+            </label>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {resumes.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">No resumes available. Please upload a resume first.</p>
+              ) : (
+                resumes.map((resume) => (
+                  <label key={resume.id} className="flex items-start space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="selectedResume"
+                      value={resume.id}
+                      checked={selectedResumeId === resume.id}
+                      onChange={(e) => {
+                        setSelectedResumeId(e.target.value);
+                        setResumeFile(null); // Clear file upload when selecting a resume
+                      }}
+                      className="mt-1 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-900 truncate">
+                          {resume.filename}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {resume.extracted_skills.slice(0, 3).map((skill, index) => (
+                          <span key={index} className="inline-block bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs">
+                            {skill}
+                          </span>
+                        ))}
+                        {resume.extracted_skills.length > 3 && (
+                          <span className="text-gray-500 text-xs">
+                            +{resume.extracted_skills.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Resume Upload (Alternative) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Or Upload New Resume (PDF) - Optional
             </label>
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 transition-colors hover:border-blue-400">
               <input
@@ -144,7 +274,7 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
                 >
                   <div className="text-3xl mb-2 text-gray-400">📄</div>
                   <p className="text-sm text-gray-600 mb-1">
-                    Click to upload your resume
+                    Click to upload a new resume
                   </p>
                   <p className="text-xs text-gray-500">PDF files only • Max 5MB</p>
                   <span className="text-xs text-blue-600 mt-2 font-medium">
@@ -153,7 +283,61 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
                 </label>
               )}
             </div>
+            <p className="text-xs text-gray-500 mt-1">
+              If you upload a new resume, it will be used instead of your selected resume
+            </p>
           </div>
+
+          {/* Skills Match Analysis */}
+          {selectedResume && matchScore !== -1 && (
+            <div className={`p-4 rounded-lg border ${
+              matchScore >= 80 ? 'bg-green-50 border-green-200' :
+              matchScore >= 60 ? 'bg-yellow-50 border-yellow-200' :
+              matchScore > 0 ? 'bg-orange-50 border-orange-200' :
+              'bg-gray-50 border-gray-200'
+            }`}>
+              <h3 className="font-medium text-gray-900 mb-2 flex items-center">
+                <span className="text-lg mr-2">🎯</span>
+                Skills Match Analysis
+              </h3>
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className={`text-sm font-semibold ${getMatchColor(matchScore)}`}>
+                    {getMatchLabel(matchScore)}
+                  </p>
+                  {matchScore > 0 && (
+                    <p className="text-xs text-gray-600 mt-1">
+                      Matching skills: {job.required_skills.filter(skill => 
+                        selectedResume.extracted_skills.some(resumeSkill => 
+                          resumeSkill.toLowerCase().includes(skill.toLowerCase()) || 
+                          skill.toLowerCase().includes(resumeSkill.toLowerCase())
+                        )
+                      ).slice(0, 3).join(', ')}
+                      {job.required_skills.length > 3 && '...'}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className={`text-2xl font-bold ${getMatchColor(matchScore)}`}>
+                    {matchScore > 0 ? `${matchScore}%` : 'N/A'}
+                  </div>
+                  <div className="text-xs text-gray-600">Match Score</div>
+                </div>
+              </div>
+              {matchScore > 0 && (
+                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                  <div 
+                    className={`h-2 rounded-full ${
+                      matchScore >= 80 ? 'bg-green-500' :
+                      matchScore >= 60 ? 'bg-yellow-500' :
+                      'bg-orange-500'
+                    }`}
+                    style={{ width: `${matchScore}%` }}
+                  ></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Cover Letter */}
           <div>
@@ -173,28 +357,6 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
               <span className={coverLetter.length > 1000 ? 'text-red-500' : ''}>
                 {coverLetter.length}/1000 characters
               </span>
-            </div>
-          </div>
-
-          {/* Skills Match (Mock AI) */}
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-            <h3 className="font-medium text-blue-900 mb-2 flex items-center">
-              <span className="text-lg mr-2">🎯</span>
-              Skills Match Analysis
-            </h3>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-blue-800">
-                  Based on common skills, you might be a good fit for this role
-                </p>
-                <p className="text-xs text-blue-700 mt-1">
-                  Matching areas: {job.required_skills.slice(0, 3).join(', ')}
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-blue-600">85%</div>
-                <div className="text-xs text-blue-700">Match Score</div>
-              </div>
             </div>
           </div>
 
@@ -224,7 +386,7 @@ const ApplicationDialog = ({ job, isOpen, onClose, onApplicationSubmit }) => {
             </button>
             <button
               type="submit"
-              disabled={loading || !coverLetter.trim()}
+              disabled={loading || !coverLetter.trim() || (!selectedResumeId && !resumeFile)}
               className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center"
             >
               {loading ? (

@@ -26,9 +26,11 @@ const Navbar = () => {
 
             {isAuthenticated ? (
               <>
-                {/* ADD THIS DASHBOARD LINK */}
                 <Link to="/dashboard" className="hover:text-blue-200 transition-colors">
                   Dashboard
+                </Link>
+                <Link to="/profile" className="hover:text-blue-200 transition-colors">
+                  Profile
                 </Link>
                 
                 <div className="flex items-center space-x-4">

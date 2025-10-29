@@ -1,14 +1,52 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
+import re
+
+TECH_SKILLS = [
+    # Programming Languages
+    'python', 'javascript', 'typescript', 'java', 'c++', 'c#', 'go', 'rust', 'kotlin', 'swift',
+    'php', 'ruby', 'scala', 'r', 'matlab', 'perl', 'haskell', 'elixir',
+    
+    # Frontend
+    'react', 'angular', 'vue', 'svelte', 'next.js', 'nuxt.js', 'html', 'css', 'sass', 'less',
+    'bootstrap', 'tailwind', 'material-ui', 'chakra-ui', 'redux', 'webpack',
+    
+    # Backend
+    'node.js', 'express', 'django', 'flask', 'fastapi', 'spring', 'laravel', 'ruby on rails',
+    'asp.net', 'graphql', 'rest api', 'microservices', 'serverless',
+    
+    # Databases
+    'mysql', 'postgresql', 'mongodb', 'redis', 'sqlite', 'oracle', 'cassandra', 'dynamodb',
+    'firebase', 'supabase', 'sql', 'nosql',
+    
+    # Cloud & DevOps
+    'aws', 'azure', 'google cloud', 'docker', 'kubernetes', 'terraform', 'ansible', 'jenkins',
+    'gitlab', 'github actions', 'ci/cd', 'linux', 'nginx', 'apache', 'helm', 'prometheus',
+    
+    # Mobile
+    'react native', 'flutter', 'android', 'ios', 'swiftui', 'jetpack compose',
+    
+    # Data Science
+    'machine learning', 'deep learning', 'tensorflow', 'pytorch', 'pandas', 'numpy', 'scikit-learn',
+    'data analysis', 'data visualization', 'tableau', 'power bi', 'jupyter', 'spark',
+    
+    # Tools
+    'git', 'jira', 'confluence', 'figma', 'photoshop', 'illustrator', 'sketch', 'postman',
+    
+    # Methodologies
+    'agile', 'scrum', 'kanban', 'tdd', 'bdd', 'devops', 'ci/cd'
+]
 
 # Temporary in-memory storage
 users_db = []
 jobs_db = []
 applications_db = []
+resumes_db = []
+user_profiles_db = [] 
 
 class UserType(str, Enum):
     CANDIDATE = "candidate"
@@ -55,6 +93,21 @@ class Application(BaseModel):
     applied_at: datetime = datetime.now()
     match_score: Optional[float] = None
 
+class Resume(BaseModel):
+    id: Optional[str] = None
+    user_id: str
+    filename: str
+    file_path: str
+    extracted_skills: List[str] = []
+    uploaded_at: datetime = datetime.now()
+
+class UserProfile(BaseModel):
+    user_id: str
+    resumes: List[str] = []
+    primary_resume_id: Optional[str] = None
+    skills: List[str] = []
+    experience: Optional[str] = None
+
 app = FastAPI(title="SmartHire API", version="1.0.0")
 
 app.add_middleware(
@@ -66,9 +119,12 @@ app.add_middleware(
 )
 
 # Helper function to generate IDs
-def generate_id():
-    return str(len(users_db) + len(jobs_db) + len(applications_db) + 1)
+id_counter = 0
 
+def generate_id():
+    global id_counter
+    id_counter += 1
+    return str(id_counter)
 @app.get("/")
 async def root():
     return {"message": "SmartHire API is working!"}
@@ -76,6 +132,112 @@ async def root():
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy"}
+
+# Mock skill extraction
+def extract_skills_from_text(text: str) -> List[str]:
+    """Extract tech skills from resume text"""
+    if not text:
+        return []
+    
+    text_lower = text.lower()
+    found_skills = []
+    
+    for skill in TECH_SKILLS:
+        # Use word boundaries to avoid partial matches
+        pattern = r'\b' + re.escape(skill.lower()) + r'\b'
+        if re.search(pattern, text_lower):
+            # Capitalize properly
+            formatted_skill = ' '.join(word.capitalize() for word in skill.split())
+            found_skills.append(formatted_skill)
+    
+    # Remove duplicates and return top 15 skills
+    unique_skills = list(dict.fromkeys(found_skills))
+    return unique_skills[:15]
+
+
+@app.delete("/api/resumes/{resume_id}")
+async def delete_resume(resume_id: str):
+    """Delete a resume"""
+    resume = next((r for r in resumes_db if r.id == resume_id), None)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    
+    # Remove from resumes database
+    resumes_db.remove(resume)
+    
+    # Update user profile
+    user_profile = next((p for p in user_profiles_db if p.user_id == resume.user_id), None)
+    if user_profile:
+        if resume_id in user_profile.resumes:
+            user_profile.resumes.remove(resume_id)
+        
+        # If this was the primary resume, set a new one
+        if user_profile.primary_resume_id == resume_id and user_profile.resumes:
+            user_profile.primary_resume_id = user_profile.resumes[0]
+            new_primary = next((r for r in resumes_db if r.id == user_profile.primary_resume_id), None)
+            if new_primary:
+                user_profile.skills = new_primary.extracted_skills
+        elif user_profile.primary_resume_id == resume_id:
+            user_profile.primary_resume_id = None
+            user_profile.skills = []
+    
+    return {"message": "Resume deleted successfully"}
+
+# Add skill management endpoints
+@app.post("/api/user/profile/{user_id}/skills")
+async def add_user_skill(user_id: str, skill_data: dict):
+    """Add a skill to user profile"""
+    user_profile = next((p for p in user_profiles_db if p.user_id == user_id), None)
+    if not user_profile:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    
+    skill = skill_data.get("skill", "").strip()
+    if skill and skill not in user_profile.skills:
+        user_profile.skills.append(skill)
+    
+    return {"message": "Skill added", "skills": user_profile.skills}
+
+@app.delete("/api/user/profile/{user_id}/skills")
+async def remove_user_skill(user_id: str, skill_data: dict):
+    """Remove a skill from user profile"""
+    user_profile = next((p for p in user_profiles_db if p.user_id == user_id), None)
+    if not user_profile:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    
+    skill = skill_data.get("skill", "").strip()
+    if skill and skill in user_profile.skills:
+        user_profile.skills.remove(skill)
+    
+    return {"message": "Skill removed", "skills": user_profile.skills}
+
+@app.get("/api/user/profile/{user_id}")
+async def get_user_profile(user_id: str):
+    """Get user profile"""
+    user_profile = next((p for p in user_profiles_db if p.user_id == user_id), None)
+    if not user_profile:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    
+    return user_profile
+@app.get("/api/resumes/user/{user_id}")
+async def get_user_resumes(user_id: str):
+    """Get all resumes for a user"""
+    user_resumes = [r for r in resumes_db if r.user_id == user_id]
+    return user_resumes
+
+@app.post("/api/resumes/primary/{resume_id}")
+async def set_primary_resume(resume_id: str):
+    """Set primary resume for job matching"""
+    resume = next((r for r in resumes_db if r.id == resume_id), None)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    
+    user_profile = next((p for p in user_profiles_db if p.user_id == resume.user_id), None)
+    if user_profile:
+        user_profile.primary_resume_id = resume_id
+        user_profile.skills = resume.extracted_skills
+    
+    return {"message": "Primary resume set"}
+
 
 # Auth endpoints
 @app.post("/api/auth/register")
@@ -300,6 +462,124 @@ async def startup_event():
         jobs_db.append(sample_job)
     
     print("✅ SmartHire API started with in-memory storage!")
+
+
+# Resume endpoints
+@app.post("/api/resumes/upload")
+async def upload_resume(file: UploadFile = File(...), user_id: str = Form(...)):
+    """Upload resume file and extract skills"""
+    try:
+        print(f"Received file: {file.filename}, size: {file.size}")
+        
+        # Read the file content
+        content = await file.read()
+        print(f"File content length: {len(content)}")
+        
+        # Extract text from PDF using a proper backend library
+        extracted_text = extract_text_from_pdf(content)
+        print(f"Extracted text length: {len(extracted_text)}")
+        print(f"First 200 chars: {extracted_text[:200]}")
+        
+        # Extract skills from the actual text
+        extracted_skills = extract_skills_from_text(extracted_text)
+        print(f"Extracted skills: {extracted_skills}")
+        
+        # Save to database
+        resume = Resume(
+            id=generate_id(),
+            user_id=user_id,
+            filename=file.filename,
+            file_path=f"/resumes/{user_id}/{file.filename}",
+            extracted_skills=extracted_skills
+        )
+        
+        resumes_db.append(resume)
+        
+        # Update user profile
+        user_profile = next((p for p in user_profiles_db if p.user_id == user_id), None)
+        if not user_profile:
+            user_profile = UserProfile(user_id=user_id, resumes=[])
+            user_profiles_db.append(user_profile)
+        
+        user_profile.resumes.append(resume.id)
+        if not user_profile.primary_resume_id:
+            user_profile.primary_resume_id = resume.id
+            user_profile.skills = extracted_skills
+        
+        return {
+            "resume": {
+                "id": resume.id,
+                "user_id": resume.user_id,
+                "filename": resume.filename,
+                "extracted_skills": resume.extracted_skills,
+                "uploaded_at": resume.uploaded_at.isoformat()
+            },
+            "skills_found": len(extracted_skills),
+            "message": f"Successfully extracted {len(extracted_skills)} skills"
+        }
+        
+    except Exception as e:
+        print(f"Error processing resume: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process resume: {str(e)}")
+
+def extract_text_from_pdf(pdf_content: bytes) -> str:
+    """Extract text from PDF using PyPDF2 or similar backend library"""
+    try:
+        # Install: pip install pypdf2
+        import PyPDF2
+        from io import BytesIO
+        
+        pdf_file = BytesIO(pdf_content)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        
+        return text
+    except Exception as e:
+        print(f"PDF extraction error: {e}")
+        return f"PDF Content: Could not extract text. Error: {e}"
+
+@app.get("/api/resumes/user/{user_id}")
+async def get_user_resumes(user_id: str):
+    """Get all resumes for a user"""
+    user_resumes = [r for r in resumes_db if r.user_id == user_id]
+    return user_resumes
+
+@app.post("/api/resumes/primary/{resume_id}")
+async def set_primary_resume(resume_id: str):
+    """Set primary resume for job matching"""
+    resume = next((r for r in resumes_db if r.id == resume_id), None)
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    
+    user_profile = next((p for p in user_profiles_db if p.user_id == resume.user_id), None)
+    if user_profile:
+        user_profile.primary_resume_id = resume_id
+        user_profile.skills = resume.extracted_skills
+    
+    return {"message": "Primary resume set"}
+
+def extract_skills_from_text(text: str) -> List[str]:
+    """Extract tech skills from resume text"""
+    if not text:
+        return []
+    
+    text_lower = text.lower()
+    found_skills = []
+    
+    for skill in TECH_SKILLS:
+        # Use word boundaries to avoid partial matches
+        pattern = r'\b' + re.escape(skill.lower()) + r'\b'
+        if re.search(pattern, text_lower):
+            # Capitalize properly
+            formatted_skill = ' '.join(word.capitalize() for word in skill.split())
+            found_skills.append(formatted_skill)
+    
+    # Remove duplicates and return top 15 skills
+    unique_skills = list(dict.fromkeys(found_skills))
+    return unique_skills[:15]
 
 if __name__ == "__main__":
     import uvicorn
